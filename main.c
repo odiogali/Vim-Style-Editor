@@ -29,6 +29,7 @@ int main(){
     if (c == 'q'){
       disableRawMode();
       tc_exit_alt_screen();
+      break;
     }
   }
 

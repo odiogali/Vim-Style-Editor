@@ -1,4 +1,4 @@
-#include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -10,6 +10,8 @@ enum Mode {
   Normal = 0,
   Insert = 1, 
 };
+
+enum Mode mode;
 
 struct termios orig_termios; // will hold original terminal settings to revert back to it
 
@@ -43,39 +45,46 @@ void enableRawMode(){
     die("tcsetattr");
 }
 
-int handleEvent(char event, enum Mode mode){
-  if (mode == 0) {
-    switch (event){
+int cx = 0, cy = 0; // cursor position
 
-    }
-  } else {
+char editorReadKey(){
+  int nread;
+  char c;
 
+  while ((nread = read(STDIN_FILENO, &c, 1)) != 1){
+    if (nread == -1 && errno != EAGAIN) die("read");
   }
-  return 0;
+
+  return c;
+}
+
+
+void editorProcessKeypress(){
+  char c = editorReadKey();
+  switch (c) {
+    case 'q':
+      disableRawMode();
+      tc_exit_alt_screen();
+      exit(0);
+      break;
+  }
+}
+
+void editorRefreshScreen(){
+  write(STDOUT_FILENO, "\x1b[2J", 4);
+  write(STDOUT_FILENO, "\x1b[H", 3);
 }
 
 int main(){
 
   tc_enter_alt_screen();
-  tc_clear_screen();
-  int cx = 0, cy = 0; // cursor position
-  tc_move_cursor(cx, cy);
+  editorRefreshScreen();
   enableRawMode();
-  enum Mode mode = Normal;
+  mode = Normal;
 
   char c;
-  while(read(STDIN_FILENO, &c, 1) == 1){ // may need to do error handling for read??
-    if (iscntrl(c)){
-      printf("%d\r\n", c);
-    } else {
-      printf("%d (%c)\r\n", c, c);
-    }
-
-    if (c == 'q'){
-      disableRawMode();
-      tc_exit_alt_screen();
-      break;
-    }
+  while(1){ 
+    editorProcessKeypress();
   }
 
   return 0;

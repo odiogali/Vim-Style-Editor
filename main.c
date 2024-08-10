@@ -34,7 +34,15 @@ void die(const char *s){
   exit(1);
 }
 
-char editorReadKey(){
+enum editorKey {
+  PAGE_UP = 1000,
+  PAGE_DOWN, 
+  HOME_KEY, 
+  END_KEY, 
+  DELETE_KEY, 
+};
+
+int editorReadKey(){
   int nread;
   char c;
 
@@ -49,15 +57,46 @@ char editorReadKey(){
     if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
 
     if (seq[0] == '['){
-      switch(seq[1]){
-        case 'A': return 'k';
-        case 'B': return 'j';
-        case 'C': return 'l';
-        case 'D': return 'h';
+
+      if (seq[1] <= '0' && seq[1] >= '9') {
+
+        if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+
+        if (seq[2] == '~'){
+          switch (seq[1]) {
+            case '1': return HOME_KEY;
+            case '3': return DELETE_KEY;
+            case '4': return END_KEY;
+            case '5': return PAGE_UP;
+            case '6': return PAGE_DOWN;
+            case '7': return HOME_KEY;
+            case '8': return END_KEY;
+          }
+        }
+
+      } else {
+        switch(seq[1]){
+          case 'A': return 'k';
+          case 'B': return 'j';
+          case 'C': return 'l';
+          case 'D': return 'h';
+          case 'H': return HOME_KEY;
+          case 'F': return END_KEY;
+        }
       }
+
+    } else if (seq[0] == 'O') {
+
+      switch(seq[1]) {
+        case 'H': return HOME_KEY;
+        case 'F': return END_KEY;
+      }
+
     }
 
     return '\x1b';
+
+
   } else return c; 
 }
 
@@ -183,27 +222,40 @@ void editorRefreshScreen(){
 void editorMoveCursor(char key){
   switch (key) {
     case 'h':
-      state.cx--;
+      if (state.cx != 0) state.cx--;
       break;
     case 'j':
-      state.cy++;
+      if (state.cy != state.screenrows - 1) state.cy++;
       break;
     case 'k':
-      state.cy--;
+      if (state.cy != 0) state.cy--;
       break;
     case 'l':
-      state.cx++;
+      if (state.cx != state.screencols - 1) state.cx++;
       break;
   }
 }
 
 void editorProcessKeypress(){
-  char c = editorReadKey();
+  int c = editorReadKey();
   switch (c) {
     case 'q':
       disableRawMode();
       tc_exit_alt_screen();
       exit(0);
+      break;
+    case DELETE_KEY:
+      // NOTE: Should have the same functionality as the 'x' key 
+      break;
+    case HOME_KEY:
+      state.cx = 0;
+      break;
+    case END_KEY:
+      state.cx = state.screencols - 1;
+      break;
+    case PAGE_UP:
+    case PAGE_DOWN:
+      // NOTE: Have page up and down do something; I think they are to go up and down a page
       break;
     case 'h':
     case 'j':

@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <termios.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include "tc.h"
 
@@ -76,33 +77,52 @@ int getCursorPosition(int *rows, int *cols){
 
   if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
 
-  printf("\r\n");
-  char c;
-  while (read(STDIN_FILENO, &c, 1) == 1) {
-    if (iscntrl(c)){
-      printf("%d\r\n", c);
-    } else {
-      printf("(%c) %d\r\n", c, c);
-    }
+  while (i < sizeof(buf) - 1) {
+    if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
+    if (buf[i] == 'R') break; // Here char array is indexed into like normal
+    i++;
   }
 
-  editorReadKey();
+  buf[i] = '\0';
+  if (buf[0] != '\x1b' || buf[1] != '[') return -1;
+  if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1; // & basically makes char arrays behave like a string
+  // We are basically saying <- return the items in memory from the third index onward
 
-  return -1;
+  return 0;
 }
 
 int getWindowSize(int *rows, int *cols){
   struct winsize ws;
 
-  if (1 || ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
     if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B" , 12) != 12) return -1;
-    editorReadKey();
     return getCursorPosition(rows, cols);
   } else {
     *cols = ws.ws_col;
     *rows = ws.ws_row;
     return 0;
   }
+}
+
+/*** append buffer ***/
+struct abuf {
+  char *b;
+  int len;
+};
+
+#define ABUF_INIT {NULL, 0};
+
+void abAppend(struct abuf *ab, const char *s, int len) {
+  char *new = realloc(ab->b, ab->len+len);
+
+  if (new == NULL) return;
+  memcpy(&new[ab->len], s, len);
+  ab->b = new;
+  ab->len += len;
+}
+
+void abFree(struct abuf *ab){
+  free(ab->b);
 }
 
 void initEditor(){
@@ -114,18 +134,30 @@ void initEditor(){
 }
 
 
-void editorDrawRows(){
+void editorDrawRows(struct abuf *ab){
   for (int i = 0; i < state.screenrows; i++) {
-    write(STDOUT_FILENO, "~\r\n", 3);
+    abAppend(ab, "~", 1);
+
+    abAppend(ab, "\x1b[K", 3); // "K" erases parts of line; 2 - whole line, 1 - line left of cursor, 0 erases line right of cursor
+    // 0 is the default argument if the number is ommitted
+    if (i != state.screenrows - 1) {
+      abAppend(ab, "\r\n", 2);
+    }
   }
 }
 
 void editorRefreshScreen(){
-  write(STDOUT_FILENO, "\x1b[2J", 4);
-  write(STDOUT_FILENO, "\x1b[H", 3);
+  struct abuf ab = ABUF_INIT;
 
-  editorDrawRows();
-  write(STDOUT_FILENO, "\x1b[H", 3);
+  abAppend(&ab, "\x1b[?25l", 6); // hide cursor
+  abAppend(&ab, "\x1b[H", 3); // cursor go to 0, 0
+
+  editorDrawRows(&ab);
+  abAppend(&ab, "\x1b[H", 3); // go to home position in case it moved
+  abAppend(&ab, "\x1b[?25h", 6); // show cursor
+
+  write(STDOUT_FILENO, ab.b, ab.len);
+  free(ab.b);
 }
 
 void editorProcessKeypress(){

@@ -1,5 +1,5 @@
 /*** Includes ***/
-#include <ctype.h>
+// #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +42,23 @@ char editorReadKey(){
     if (nread == -1 && errno != EAGAIN) die("read");
   }
 
-  return c;
+  if (c == '\x1b') {
+    char seq[3];
+
+    if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+    if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+
+    if (seq[0] == '['){
+      switch(seq[1]){
+        case 'A': return 'k';
+        case 'B': return 'j';
+        case 'C': return 'l';
+        case 'D': return 'h';
+      }
+    }
+
+    return '\x1b';
+  } else return c; 
 }
 
 /*** Terminal ***/
@@ -153,11 +169,32 @@ void editorRefreshScreen(){
   abAppend(&ab, "\x1b[H", 3); // cursor go to 0, 0
 
   editorDrawRows(&ab);
-  abAppend(&ab, "\x1b[H", 3); // go to home position in case it moved
+  
+  char buf[32];
+  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", state.cy + 1, state.cx + 1); // cy and cx + 1 because terminal rows and cols start at 1
+  abAppend(&ab, buf, strlen(buf));
+
   abAppend(&ab, "\x1b[?25h", 6); // show cursor
 
   write(STDOUT_FILENO, ab.b, ab.len);
   free(ab.b);
+}
+
+void editorMoveCursor(char key){
+  switch (key) {
+    case 'h':
+      state.cx--;
+      break;
+    case 'j':
+      state.cy++;
+      break;
+    case 'k':
+      state.cy--;
+      break;
+    case 'l':
+      state.cx++;
+      break;
+  }
 }
 
 void editorProcessKeypress(){
@@ -167,6 +204,12 @@ void editorProcessKeypress(){
       disableRawMode();
       tc_exit_alt_screen();
       exit(0);
+      break;
+    case 'h':
+    case 'j':
+    case 'k':
+    case 'l':
+      editorMoveCursor(c);
       break;
   }
 }

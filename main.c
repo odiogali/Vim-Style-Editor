@@ -13,14 +13,21 @@
 /*** Data and Input ***/
 enum Mode { // editor modes will be stored in an enum
   Normal = 0,
-  Insert = 1, 
+  Insert, // Infers that 'insert' is 1
 };
+
+typedef struct erow{
+  int size;
+  char *chars;
+} erow;
 
 struct editorConfig { // editor settings will be stored in the struct
   enum Mode mode; 
   struct termios orig_termios; // will hold original terminal settings to revert back to it
   int cx, cy; // cursor position
   int screenrows, screencols; // max screen size
+  int numrows;
+  erow row;
 };
 
 struct editorConfig state;
@@ -50,7 +57,7 @@ int editorReadKey(){
   int nread; // number of bytes read
   char c; // character that is read
 
-  while ((nread = read(STDIN_FILENO, &c, 1)) != 1){ // if, when we try to read a byte, no byte is read
+  while ((nread = read(STDIN_FILENO, &c, 1)) != 1){ // while, when we try to read a byte, and a byte is what is read
     if (nread == -1 && errno != EAGAIN) die("read"); // and there is an error (nread == -1), then die
   }
 
@@ -196,6 +203,7 @@ void abFree(struct abuf *ab){
 void initEditor(){
   state.cx = 0;
   state.cy = 0;
+  state.numrows = 0;
   state.mode = Normal;
   if (getWindowSize(&state.screenrows, &state.screencols) == -1)
     die("getWindowSize");
@@ -219,13 +227,14 @@ void editorRefreshScreen(){
   struct abuf ab = ABUF_INIT;
 
   abAppend(&ab, "\x1b[?25l", 6); // hide cursor (prevent flickering)
-  abAppend(&ab, "\x1b[H", 3); // cursor go to 0, 0
+  abAppend(&ab, "\x1b[H", 3); // move cursor to 0, 0 - but don't change the state cursor values
 
   editorDrawRows(&ab);
   
   char buf[32];
   snprintf(buf, sizeof(buf), "\x1b[%d;%dH", state.cy + 1, state.cx + 1); // cy and cx + 1 because terminal rows and cols start at 1
-  abAppend(&ab, buf, strlen(buf));
+  // write cursor position to buffer
+  abAppend(&ab, buf, strlen(buf)); // add cursor position to buffer to write
 
   abAppend(&ab, "\x1b[?25h", 6); // show cursor
 
@@ -282,19 +291,46 @@ void editorProcessKeypress(){
   }
 }
 
-int main(){
+void readFile(char *filename, char* fileContents){
+  FILE* fptr = fopen(filename, "r");
+
+  if (fptr == NULL) die("Error reading file");
+
+  int ch;
+  int i = 0;
+  while((ch = fgetc(fptr)) != EOF){
+    if (i == 1024){
+      break;
+    }
+    fileContents[i] = ch;
+    i++;
+  }
+  fclose(fptr);
+}
+
+void displayFile(struct abuf *fileData){
+  
+}
+
+int main(int argc, char *argv[]){
 
   tc_enter_alt_screen();
   editorRefreshScreen();
   enableRawMode();
   initEditor();
 
+  if (argc == 2){
+    char fileContents[1024];
+    readFile(argv[1], fileContents);
+    printf("File contents: %s", fileContents);
+  }
+
   char c;
   while(1){ 
     editorRefreshScreen();
     editorProcessKeypress();
   }
-
+  
   return 0;
 }
 

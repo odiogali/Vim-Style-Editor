@@ -427,6 +427,9 @@ void splitIntoRows(char *fileContents, int fileSize) {
 void editorOpen(char *fileName) {
   char *fileContents;
   int fileSize = readFile(fileName, &fileContents);
+  if (fileSize == -1) {
+    die("error reading file");
+  }
   splitIntoRows(fileContents, fileSize);
 }
 

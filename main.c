@@ -1,5 +1,8 @@
 /*** Includes ***/
-// #include <ctype.h>
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
+
 #include "main.h"
 #include <errno.h>
 #include <stdbool.h>
@@ -251,7 +254,7 @@ void abFree(struct abuf *ab) { free(ab->b); }
 
 // Upon startup, handles what ought to be done by the editor
 void initEditor() {
-  state.cx = 0;
+  state.cx = 2;
   state.cy = 0;
   state.numrows = 0;
   state.mode = Normal;
@@ -260,20 +263,45 @@ void initEditor() {
     die("getWindowSize");
 }
 
+// Given an integer, return the number in string format with a space after
+int intToString(int num, char **res) {
+  int length = snprintf(NULL, 0, "%d ", num);
+  if (length < 0)
+    return -1;
+
+  *res = malloc(length + 1);
+  if (*res == NULL)
+    return -1;
+
+  snprintf(*res, length + 1, "%d ", num);
+
+  return length;
+}
+
 // Handles drawing the editor - it's called drawRows but using the buffer, it
 // draws it all at once
 void editorDrawRows(struct abuf *ab) {
   for (int i = 0; i < state.screenrows; i++) {
     // since cursor starts at (0, 0), write ~ to there then do the same unless
     // we are at the last row
-    abAppend(ab, "~ ", 2);
     if (i >= state.numrows) {
+      abAppend(ab, "~ ", 2);
       // NOTE: Do something
     } else {
+      char *currentRowNum;
+      int length = intToString(i + 1, &currentRowNum);
+
+      if (length == -1) {
+        die("row numbering");
+      }
+
+      abAppend(ab, currentRowNum, length);
       int len = state.rows[i].size;
       if (len > state.screencols)
         len = state.screencols;
       abAppend(ab, state.rows[i].chars, len);
+
+      free(currentRowNum);
     }
 
     // "K" erases parts of line; 2 - whole line, 1 - line left of
@@ -313,7 +341,7 @@ void editorRefreshScreen() {
 void editorMoveCursor(char key) {
   switch (key) {
   case 'h':
-    if (state.cx != 0)
+    if (state.cx != 2)
       state.cx--;
     break;
   case 'j':

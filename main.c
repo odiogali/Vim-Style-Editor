@@ -33,6 +33,8 @@ struct editorConfig { // editor settings will be stored in the struct
   int numrows;
   erow *rows;
   int minCx;
+  int rowoff; // row offset (what row is cursor on?)
+  int coloff; // column offset - idx for chars in erow
 };
 
 struct editorConfig state;
@@ -261,6 +263,8 @@ void initEditor() {
   state.rows = NULL;
   state.minCx = 2; // By default, will usually only have a single row
   state.cx = 2;
+  state.rowoff = 0;
+  state.coloff = 0;
   if (getWindowSize(&state.screenrows, &state.screencols) == -1)
     die("getWindowSize");
 }
@@ -275,12 +279,22 @@ int getPadding(int rowNumber){
   return maxStrLength - strlength;
 }
 
+void editorScroll(){
+  if (state.cy < state.rowoff){
+    state.rowoff = state.cy;
+  }
+  if (state.cy >= state.rowoff + state.screenrows){
+    state.rowoff = state.cy - state.screenrows + 1;
+  }
+}
+
 // Handles drawing the editor - it's called drawRows but using the buffer, it
 // draws it all at once
 void editorDrawRows(struct abuf *ab) {
   for (int i = 0; i < state.screenrows; i++) {
+    int filerow = i + state.rowoff;
     char* padding;
-    if (i >= state.numrows) {
+    if (filerow >= state.numrows) {
       // The character we display at the beginning is length 1
       int padding = getPadding(1);
       if (padding == -1){
@@ -294,16 +308,16 @@ void editorDrawRows(struct abuf *ab) {
       abAppend(ab, rowInfo, 2 + padding);
       free(rowInfo);
     } else {
-      int padding = getPadding(i+1);
+      int padding = getPadding(filerow+1);
       if (padding == -1){
         die("get padding number");
       }
 
-      int rowStrLen = snprintf(NULL, 0, "%d", i+1);
+      int rowStrLen = snprintf(NULL, 0, "%d", filerow+1);
       // Allocate space for padding, number itself, space, and null terminator
 
       char* numStr = malloc(rowStrLen + 1); // for null terminator
-      rowStrLen = snprintf(numStr, rowStrLen + 1, "%d", i+1);
+      rowStrLen = snprintf(numStr, rowStrLen + 1, "%d", filerow+1);
 
       char* row = malloc(padding + rowStrLen + 2);
       memset(row, ' ', padding);
@@ -312,10 +326,10 @@ void editorDrawRows(struct abuf *ab) {
       row[padding + strlen(numStr) + 1] = '\0';
 
       abAppend(ab, row, strlen(row));
-      int len = state.rows[i].size;
+      int len = state.rows[filerow].size;
       if (len > state.screencols)
         len = state.screencols;
-      abAppend(ab, state.rows[i].chars, len);
+      abAppend(ab, state.rows[filerow].chars, len);
     }
 
     // "K" erases parts of line; 2 - whole line, 1 - line left of
@@ -331,6 +345,7 @@ void editorDrawRows(struct abuf *ab) {
 
 // Handles refreshing the screen - updating cursor position visually etc etc.
 void editorRefreshScreen() {
+  editorScroll();
   struct abuf ab = ABUF_INIT;
 
   abAppend(&ab, "\x1b[?25l", 6); // hide cursor (prevent flickering)
@@ -340,8 +355,7 @@ void editorRefreshScreen() {
   editorDrawRows(&ab);
 
   char buf[32];
-  // cy and cx + 1 because terminal rows and cols start at 1
-  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", state.cy + 1, state.cx + 1);
+  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (state.cy - state.rowoff) + 1, state.cx + 1);
   // write cursor position to buffer
   abAppend(&ab, buf, strlen(buf)); // add cursor position to buffer to write
 
@@ -359,7 +373,7 @@ void editorMoveCursor(char key) {
       state.cx--;
     break;
   case 'j':
-    if (state.cy != state.screenrows - 1)
+    if (state.cy < state.numrows)
       state.cy++;
     break;
   case 'k':

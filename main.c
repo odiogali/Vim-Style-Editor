@@ -32,6 +32,7 @@ struct editorConfig { // editor settings will be stored in the struct
   int screenrows, screencols;  // max screen size
   int numrows;
   erow *rows;
+  int minCx;
 };
 
 struct editorConfig state;
@@ -254,54 +255,67 @@ void abFree(struct abuf *ab) { free(ab->b); }
 
 // Upon startup, handles what ought to be done by the editor
 void initEditor() {
-  state.cx = 2;
   state.cy = 0;
   state.numrows = 0;
   state.mode = Normal;
-  state.rows = malloc(sizeof(erow *));
+  state.rows = NULL;
+  state.minCx = 2; // By default, will usually only have a single row
+  state.cx = 2;
   if (getWindowSize(&state.screenrows, &state.screencols) == -1)
     die("getWindowSize");
 }
 
-// Given an integer, return the number in string format with a space after
-int intToString(int num, char **res) {
-  int length = snprintf(NULL, 0, "%d ", num);
-  if (length < 0)
+int getPadding(int rowNumber){
+  int strlength = snprintf(NULL, 0, "%d", rowNumber);
+  int maxStrLength = snprintf(NULL, 0, "%d", state.numrows);
+  if (strlength == -1){
     return -1;
+  }
 
-  *res = malloc(length + 1);
-  if (*res == NULL)
-    return -1;
-
-  snprintf(*res, length + 1, "%d ", num);
-
-  return length;
+  return maxStrLength - strlength;
 }
 
 // Handles drawing the editor - it's called drawRows but using the buffer, it
 // draws it all at once
 void editorDrawRows(struct abuf *ab) {
   for (int i = 0; i < state.screenrows; i++) {
-    // since cursor starts at (0, 0), write ~ to there then do the same unless
-    // we are at the last row
+    char* padding;
     if (i >= state.numrows) {
-      abAppend(ab, "~ ", 2);
-      // NOTE: Do something
-    } else {
-      char *currentRowNum;
-      int length = intToString(i + 1, &currentRowNum);
-
-      if (length == -1) {
-        die("row numbering");
+      // The character we display at the beginning is length 1
+      int padding = getPadding(1);
+      if (padding == -1){
+        die("get padding tilde");
       }
 
-      abAppend(ab, currentRowNum, length);
+      char* rowInfo = malloc(2 + padding);
+      memset(rowInfo, ' ', padding);
+      memcpy(&rowInfo[padding], "~ ", 2);
+
+      abAppend(ab, rowInfo, 2 + padding);
+      free(rowInfo);
+    } else {
+      int padding = getPadding(i+1);
+      if (padding == -1){
+        die("get padding number");
+      }
+
+      int rowStrLen = snprintf(NULL, 0, "%d", i+1);
+      // Allocate space for padding, number itself, space, and null terminator
+
+      char* numStr = malloc(rowStrLen + 1); // for null terminator
+      rowStrLen = snprintf(numStr, rowStrLen + 1, "%d", i+1);
+
+      char* row = malloc(padding + rowStrLen + 2);
+      memset(row, ' ', padding);
+      memcpy(&row[padding], numStr, strlen(numStr));
+      row[padding + strlen(numStr)] = ' ';
+      row[padding + strlen(numStr) + 1] = '\0';
+
+      abAppend(ab, row, strlen(row));
       int len = state.rows[i].size;
       if (len > state.screencols)
         len = state.screencols;
       abAppend(ab, state.rows[i].chars, len);
-
-      free(currentRowNum);
     }
 
     // "K" erases parts of line; 2 - whole line, 1 - line left of
@@ -341,7 +355,7 @@ void editorRefreshScreen() {
 void editorMoveCursor(char key) {
   switch (key) {
   case 'h':
-    if (state.cx != 2)
+    if (state.cx > state.minCx)
       state.cx--;
     break;
   case 'j':
@@ -371,8 +385,9 @@ void editorProcessKeypress() {
   case DELETE_KEY:
     // NOTE: Should have the same functionality as the 'x' key
     break;
+  case '0':
   case HOME_KEY:
-    state.cx = 0;
+    state.cx = state.minCx;
     break;
   case END_KEY:
     state.cx = state.screencols - 1;
@@ -395,21 +410,23 @@ void editorProcessKeypress() {
 /* file I/O */
 
 int arrAppend(char *line) {
-  erow *newRows = malloc(sizeof(erow) * (state.numrows + 1));
-  if (newRows == NULL) {
+  state.rows = realloc(state.rows, sizeof(erow) * (state.numrows + 1));
+  if (state.rows == NULL) {
     return -1;
   }
 
-  memcpy(newRows, state.rows, state.numrows * (sizeof(erow)));
+  memcpy(state.rows, state.rows, state.numrows * (sizeof(erow)));
 
   erow row;
   row.size = strlen(line);
   row.chars = line;
 
-  newRows[state.numrows] = row;
-  state.rows = newRows;
-
+  state.rows[state.numrows] = row;
   state.numrows += 1;
+
+  int strlength = snprintf(NULL, 0, "%d", state.numrows);
+  state.minCx = strlength + 1;
+  state.cx = state.minCx;
 
   return 0;
 }
@@ -446,8 +463,8 @@ void splitIntoRows(char *fileContents, int fileSize) {
         die("row splitting");
       }
       lineStart = curr + 1;
-    } else {
-    }
+    } 
+    
     curr++;
   }
 }
